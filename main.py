@@ -9,6 +9,7 @@ from numpy.random import seed
 from numpy.random import normal
 import datetime
 from scipy.stats import norm
+import multiprocessing
 from typing import TypeVar
 
 DAYS_IN_YEAR = 365
@@ -25,6 +26,7 @@ num_years = 30
 num_periods = num_years * 12
 zipcode = '75074'
 home_type = "Single Family Residential"
+house_current_value = 350000
 
 
 df_sp500 = pd.DataFrame()
@@ -61,7 +63,7 @@ class Brown:
 
         return price
 
-    def calc_futures(self, last_value):
+    def calc_all_futures(self, last_value):
         '''
         Formula based upon Investopedia guidance
         https://www.investopedia.com/terms/m/montecarlosimulation.asp
@@ -83,7 +85,7 @@ class Brown:
                 count += 1
 
             self.forecast_data[count] = price
-        print()
+
 
 
     def graph_futures(self):
@@ -172,7 +174,7 @@ def calc_housing_variables(df_Housing_Market:pd.DataFrame):
     plt.show()
     sns.relplot(data=housing_futures,kind="line")
     plt.show()
-    print()
+
 
 def calc_my_house_futures():
 
@@ -197,68 +199,115 @@ def calc_my_sp500_futures(brown : Brown):
     sp500_futures_pct_change += 1
     sns.relplot(data=sp500_futures,kind="line")
     plt.show()
-    print()
+
 
 def calculate_return(arr):
+    """
+    Calculates the total return percentage
+    :param arr:
+    :return return_rate:
+    """
     tot_return = arr[num_periods-1] - arr[0]
-    return_rate = tot_return / arr[0]
-    print("Return rate: " + str(return_rate))
+    return_rate = (tot_return / arr[0]) * 100.0
+    return_rate = return_rate / num_years
+    return return_rate
 
-def calculate_percentiles(matrix):
+def calculate_percentiles(matrix, name):
 
     percentile_95 = np.percentile(matrix, 95, axis=1)
-    print("Returns for 95 percentile")
-    calculate_return(percentile_95)
+    print("Avg Annual Return rate for 95 percentile : " + name + " " + str(calculate_return(percentile_95)))
 
     percentile_50 = np.percentile(matrix, 50, axis=1)
-    print("Returns for 50 percentile")
-    calculate_return(percentile_50)
+    print("Avg Annual Return rate for 50 percentile : " + name + " " + str(calculate_return(percentile_50)))
 
     percentile_20 = np.percentile(matrix, 20, axis=1)
-    print("Returns for 20 percentile")
-    calculate_return(percentile_20)
+    print("Avg Annual Return rate for 20 percentile : " + name + " " + str(calculate_return(percentile_20)))
 
     percentile_5 = np.percentile(matrix, 5, axis=1)
-    print("Returns for 5 percentile")
-    calculate_return(percentile_5)
+    print("Avg Annual Return rate for 5 percentile : " + name + " " + str(calculate_return(percentile_5)))
 
     new_df = pd.DataFrame()
     new_df.insert(0, "5% Success", percentile_95)
+
     new_df.insert(1, "50% Success", percentile_50)
     new_df.insert(2, "80% Success", percentile_20)
     new_df.insert(3, "95% Success", percentile_5)
 
-
-
     return new_df
+
+def monte_carlo_sim_housing(df, return_dict):
+
+    house_sim_matrix = np.zeros((num_periods, NUM_OF_SIMULATIONS))
+    print("In housing monte carlo")
+    for x in range(NUM_OF_SIMULATIONS):
+
+        housing_brown = Brown(data=df['median_sale_price'].astype(int), forecast_periods=num_periods)
+        housing_brown.calc_all_futures(house_current_value)
+        house_sim_matrix[:, x] = housing_brown.forecast_data
+
+    return_dict["housing"] = calculate_percentiles(house_sim_matrix, "housing")
+    #avg_pct_change = (return_dict["housing"]["5% Success"][num_periods] - return_dict["housing"]["5% Success"][0]) / num_years
+    #print("Housing avg annual pct change for 5% success" + str(avg_pct_change))
+
+    #avg_pct_change = (return_dict["housing"]["50% Success"][num_periods] - return_dict["housing"]["50% Success"][0]) / num_years
+    #print("Housing avg annual pct change for 50% success" + str(avg_pct_change))
+
+    #avg_pct_change = (return_dict["housing"]["80% Success"][num_periods] - return_dict["housing"]["80% Success"][0]) / num_years
+    #print("Housing avg annual pct change for 80% success" + str(avg_pct_change))
+
+    #avg_pct_change = (return_dict["housing"]["95% Success"][num_periods] - return_dict["housing"]["95% Success"][0]) / num_years
+    #print("Housing avg annual pct change for 95% success" + str(avg_pct_change))
+
+
+def monte_carlo_sim_sp500(df, return_dict):
+
+
+    sp500_sim_matrix = np.zeros((num_periods, NUM_OF_SIMULATIONS))
+    print("In sp500 monte carlo")
+    for x in range(NUM_OF_SIMULATIONS):
+
+        sp500_brown = Brown(data=df['Adj Close'].astype(int), forecast_periods=num_periods)
+        sp500_brown.calc_all_futures(200000)
+        sp500_sim_matrix[:, x] = sp500_brown.forecast_data
+
+    return_dict["sp500"] = calculate_percentiles(sp500_sim_matrix, "sp500")
+
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
 
     df_dict = {}
     brown_dict = {}
-    sp500_sim_matrix = np.zeros((num_periods,NUM_OF_SIMULATIONS ))
+
+
 
     matrix = pd.DataFrame()
 
     df_sp500 = get_sp500()
+    df_housing = get_housing_market()
 
-    for x in range(NUM_OF_SIMULATIONS):
+    manager = multiprocessing.Manager()
+    return_dict = manager.dict()
+    jobs = []
+    p1 = multiprocessing.Process(target=monte_carlo_sim_sp500, args=(df_sp500, return_dict))
+    p2 = multiprocessing.Process(target=monte_carlo_sim_housing, args=(df_housing,return_dict))
+    jobs.append(p1)
+    jobs.append(p2)
+    p1.start()
+    p2.start()
 
-        sp500_brown = Brown(data=df_sp500['Adj Close'].astype(int), forecast_periods=num_periods)
-        #sp500_brown.calc_futures(sp500_brown.df['Adj Close'][sp500_brown.df['Adj Close'].size-1])
-        sp500_brown.calc_futures(200000)
-        name = "Sim " + str(x)
-        brown_dict[name] = sp500_brown
-        df_dict[name] = sp500_brown.df
-        sp500_sim_matrix[:,x] = sp500_brown.forecast_data
-        #sp500_brown.graph_futures()
+    p1.join()
+    p2.join()
 
-    #graph_futures(num_periods, sp500_sim_matrix)
+    print("P1 is alive?: " + str(p1.is_alive()))
+    print("P2 is alive?: " + str(p2.is_alive()))
 
-    df = calculate_percentiles(sp500_sim_matrix)
+    print(return_dict)
 
-    graph_futures(num_periods, df, "SP500 percentile")
+
+
+    #graph_futures(num_periods, return_dict["sp500"], "SP500 percentiles")
+    #graph_futures(num_periods, return_dict["housing"], "Housing Percentiles")
 
     multi = MultiIndex.from_frame(df_dict)
 
